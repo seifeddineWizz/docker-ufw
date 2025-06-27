@@ -41,9 +41,10 @@ To find it, you can use:
 ip route get 1.1.1.1
 ```
 ### 3. Run the Installer
+```bash
 chmod +x install.sh
 sudo ./install.sh
-
+```
 The script performs the following steps:
 
 1. Prompts the user to input the external network interface.
@@ -55,13 +56,14 @@ The script performs the following steps:
 Do not use `iptables-persistent` alongside UFW if this tool is installed — it may conflict and break rule persistence.
 
 ## 🔧 Uninstallation
-
+```bash
 sudo systemctl disable --now docker-ufw.service
 sudo docker-ufw reset
 sudo rm /usr/local/bin/docker-ufw
 sudo rm -r /etc/iptables
 sudo rm /etc/systemd/system/docker-ufw.service
 sudo systemctl daemon-reload
+```
 
 ## License
 MIT License.
