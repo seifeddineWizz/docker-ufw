@@ -51,7 +51,7 @@ The script performs the following steps:
 3. Copies the necessary files to the appropriate system locations.
 4. Enables and starts the `docker-ufw` systemd service.
 
-##👮‍♂️ Warning
+## 👮‍♂️ Warning
 Do not use `iptables-persistent` alongside UFW if this tool is installed — it may conflict and break rule persistence.
 
 ## 🔧 Uninstallation
