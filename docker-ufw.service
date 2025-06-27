@@ -1,0 +1,13 @@
+[Unit]
+Description=Apply allowed IP rules to DOCKER-USER chain
+After=network.target docker.service 
+Requires=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/etc/iptables/docker-ufw.sh
+RemainAfterExit=true
+User=root
+[Install]
+WantedBy=multi-user.target
+

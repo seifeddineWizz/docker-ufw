@@ -1,0 +1,202 @@
+#!/bin/bash
+
+set -e # Exit on any command failure
+
+ALLOWED_IPS_FILE="/etc/iptables/allowed-ips.txt"
+FIREWALL_SCRIPT="/etc/iptables/docker-ufw.sh"
+EXT_IF="ens66"
+
+function ensure_file() {
+    [[ -f "$ALLOWED_IPS_FILE" ]] || touch "$ALLOWED_IPS_FILE"
+}
+
+# Check if the essential baseline rules are missing
+function check_and_bootstrap_firewall() {
+
+    local missing=0
+
+    # Check if the essential baseline rules are missing
+    iptables -S DOCKER-USER | grep -q -- "-m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT" || missing=1
+    iptables -S DOCKER-USER | grep -q -- "-i $EXT_IF -j DROP" || missing=1
+    iptables -S DOCKER-USER | grep -q -- "-j RETURN" || missing=1
+
+
+    if [ "$missing" -eq 1 ]; then
+        echo "Initialization ..."
+        bash "$FIREWALL_SCRIPT"
+    fi
+}
+
+function extract_ips() {
+    sudo iptables -L DOCKER-USER -n -v | awk '
+    NR <= 2 { next }  # skip header lines
+
+    # Skip the specific line to ignore:
+    # target=ACCEPT, in=*, out=*, source=0.0.0.0/0, dest=0.0.0.0/0, and "ctstate RELATED,ESTABLISHED" present
+    $3 == "ACCEPT" && $6 == "*" && $7 == "*" && $8 == "0.0.0.0/0" && $9 == "0.0.0.0/0" && /ctstate RELATED,ESTABLISHED/ {
+        next
+    }
+
+    # Show only ACCEPT rules
+    $3 != "ACCEPT" { next }
+
+    {
+        source_ip = $8
+        dest_ip = $9
+        iface = $6
+        if (iface == "*") iface = $7
+        printf "%s\n", source_ip
+    }'
+}
+
+function check_sync_status() {
+    # Extract IPs from iptables rules (only -s based ACCEPT rules)
+
+    extract_ips | sort -u > /tmp/.ipt-current.txt
+
+    # Clean and sort file IPs
+    sort -u "$ALLOWED_IPS_FILE" > /tmp/.ipt-expected.txt
+
+    # Compare files
+    local diff_found=0
+
+    if ! diff -q /tmp/.ipt-current.txt /tmp/.ipt-expected.txt >/dev/null; then
+    diff_found=1
+    fi
+
+    rm -f /tmp/.ipt-current.txt /tmp/.ipt-expected.txt
+
+    if [ "$diff_found" -eq 1 ]; then
+        echo "❌ Desynchronization detected between iptables and $ALLOWED_IPS_FILE."
+        echo "Execute 'sudo docker-ufw status' and 'cat $ALLOWED_IPS_FILE' to compare and identify any missing IP addresses."
+        echo "Execute 'sudo docker-ufw reload' to remove the previous configuration and apply only the IP addresses specified in the file $ALLOWED_IPS_FILE."
+        echo "To include other IP addresses, run 'sudo docker-ufw add <your_ip>'."
+        return 1
+    else
+        return 0
+    fi
+}
+
+function add_ip() {
+    local ip="$1"
+
+    ensure_file
+
+    check_sync_status
+
+    check_and_bootstrap_firewall
+
+
+    if grep -Fxq "$ip" "$ALLOWED_IPS_FILE"; then
+        echo "IP $ip already allowed."
+    else
+        iptables -I DOCKER-USER 2 -i "$EXT_IF" -s "$ip" -j ACCEPT
+        # Ensure the allowed IPs file ends with a newline, but only if it's not empty.
+        if [[ -s "$ALLOWED_IPS_FILE" ]]; then
+            tail -c1 "$ALLOWED_IPS_FILE" | read -r _ || echo >> "$ALLOWED_IPS_FILE"
+        fi
+        echo "$ip" >> "$ALLOWED_IPS_FILE"
+        echo "IP $ip added."
+    fi
+}
+
+function remove_ip() {
+    
+    local ip="$1"
+
+    ensure_file
+
+    check_sync_status
+
+    check_and_bootstrap_firewall
+
+    if grep -Fxq "$ip" "$ALLOWED_IPS_FILE"; then
+        # Delete IP from iptables
+        iptables -D DOCKER-USER -i "$EXT_IF" -s "$ip" -j ACCEPT
+        # Delete IP from file
+        sed -i "\|^$ip\$|d" "$ALLOWED_IPS_FILE"
+        echo "IP $ip removed."
+    else
+        echo "IP $ip not found."
+    fi
+}
+
+function show_status_advanced() {
+    iptables -L DOCKER-USER -n -v
+}
+
+function show_status() {
+    sudo iptables -L DOCKER-USER -n -v | awk '
+    NR <= 2 { next }  # skip header lines
+
+    # Skip the specific line to ignore:
+    # target=ACCEPT, in=*, out=*, source=0.0.0.0/0, dest=0.0.0.0/0, and "ctstate RELATED,ESTABLISHED" present
+    $3 == "ACCEPT" && $6 == "*" && $7 == "*" && $8 == "0.0.0.0/0" && $9 == "0.0.0.0/0" && /ctstate RELATED,ESTABLISHED/ {
+        next
+    }
+
+    # Show only ACCEPT rules
+    $3 != "ACCEPT" { next }
+
+    BEGIN {
+        print "Source IP        Destination IP       Interface       Comment"
+    }
+
+    {
+        source_ip = $8
+        dest_ip = $9
+        iface = $6
+        if (iface == "*") iface = $7
+        printf "%-16s %-18s %-15s (external access)\n", source_ip, dest_ip, iface
+    }'
+}
+
+function reload_rules() {
+    bash "$FIREWALL_SCRIPT"
+    echo "Rules reloaded."
+}
+
+function reset_all() {
+    echo "WARNING: This will remove ALL DOCKER-USER rules and clear allowed IPs!"
+    read -p "Are you sure? (yes/[no]): " confirm
+    if [[ "$confirm" != "yes" ]]; then
+        echo "Aborted."
+        return
+    fi
+    # Flush DOCKER-USER chain
+    iptables -F DOCKER-USER
+    iptables -A DOCKER-USER -j RETURN
+
+    # Clear allowed IPs file
+    > "$ALLOWED_IPS_FILE"
+
+    echo "All rules removed and allowed IPs cleared."
+}
+
+case "$1" in
+    add)
+        [[ -z "$2" ]] && echo "Usage: docker-ufw add <IP>" && exit 1
+        add_ip "$2"
+        ;;
+    remove)
+        [[ -z "$2" ]] && echo "Usage: docker-ufw remove <IP>" && exit 1
+        remove_ip "$2"
+        ;;
+    status)
+        show_status
+        ;;
+    reload)
+        reload_rules
+        ;;
+    status-advanced)
+        show_status_advanced
+        ;;
+    reset)
+        reset_all
+        ;;
+    *)
+        echo "Usage: docker-ufw {add|remove|status|status-advanced|reload|reset}"
+        exit 1
+        ;;
+esac
+
