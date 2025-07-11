@@ -3,15 +3,18 @@
 set -e  # Exit on any error
 
 
-# Prompt for external interface
-read -rp "[?] Enter the external network interface (e.g., eth0, ens3): " EXT_IF
+# Automatically detect external interface
+EXT_IF=$(ip route get 1.1.1.1 | awk '{for(i=1;i<=NF;i++) if($i=="dev") print $(i+1)}')
 
-# Optional: validate it's not empty
+# Validate interface detection
 if [[ -z "$EXT_IF" ]]; then
-    echo "[!] Interface cannot be empty. Exiting."
+    echo "[!] Failed to detect external interface. Exiting."
     exit 1
 fi
 
+echo "[*] Detected external interface: $EXT_IF"
+
+exit 0
 
 # Update EXT_IF variable in docker-ufw and docker-ufw.sh
 echo "[*] Setting EXT_IF=\"$EXT_IF\" in docker-ufw and docker-ufw.sh..."
