@@ -14,7 +14,6 @@ fi
 
 echo "[*] Detected external interface: $EXT_IF"
 
-exit 0
 
 # Update EXT_IF variable in docker-ufw and docker-ufw.sh
 echo "[*] Setting EXT_IF=\"$EXT_IF\" in docker-ufw and docker-ufw.sh..."
