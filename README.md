@@ -32,15 +32,7 @@ This tool consists of **two parts**:
 git clone https://github.com/seifeddineWizz/docker-ufw.git
 cd docker-ufw
 ```
-
-### 2. Find Your External Network Interface
-You will be asked to enter your server's external interface during installation.
-To find it, you can use:
-
-```bash
-ip route get 1.1.1.1
-```
-### 3. Run the Installer
+### 2. Run the Installer
 ```bash
 chmod +x install.sh
 sudo ./install.sh
