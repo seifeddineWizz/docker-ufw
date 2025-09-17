@@ -4,7 +4,7 @@ set -e # Exit on any command failure
 
 ALLOWED_IPS_FILE="/etc/iptables/allowed-ips.txt"
 FIREWALL_SCRIPT="/etc/iptables/docker-ufw.sh"
-EXT_IF="ens66"
+
 
 function ensure_file() {
     [[ -f "$ALLOWED_IPS_FILE" ]] || touch "$ALLOWED_IPS_FILE"
@@ -17,7 +17,7 @@ function check_and_bootstrap_firewall() {
 
     # Check if the essential baseline rules are missing
     iptables -S DOCKER-USER | grep -q -- "-m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT" || missing=1
-    iptables -S DOCKER-USER | grep -q -- "-i $EXT_IF -j DROP" || missing=1
+    iptables -S DOCKER-USER | grep -q -- "-j DROP" || missing=1
     iptables -S DOCKER-USER | grep -q -- "-j RETURN" || missing=1
 
 
@@ -39,12 +39,14 @@ function extract_ips() {
 
     # Show only ACCEPT rules
     $3 != "ACCEPT" { next }
+    $6 == "br+" || $7 == "br+" { next }
 
     {
         source_ip = $8
         dest_ip = $9
         iface = $6
         if (iface == "*") iface = $7
+        if (iface == "docker0") next
         printf "%s\n", source_ip
     }'
 }
@@ -90,7 +92,7 @@ function add_ip() {
     if grep -Fxq "$ip" "$ALLOWED_IPS_FILE"; then
         echo "IP $ip already allowed."
     else
-        iptables -I DOCKER-USER 2 -i "$EXT_IF" -s "$ip" -j ACCEPT
+        iptables -I DOCKER-USER 2 -s "$ip" -j ACCEPT
         # Ensure the allowed IPs file ends with a newline, but only if it's not empty.
         if [[ -s "$ALLOWED_IPS_FILE" ]]; then
             tail -c1 "$ALLOWED_IPS_FILE" | read -r _ || echo >> "$ALLOWED_IPS_FILE"
@@ -112,7 +114,7 @@ function remove_ip() {
 
     if grep -Fxq "$ip" "$ALLOWED_IPS_FILE"; then
         # Delete IP from iptables
-        iptables -D DOCKER-USER -i "$EXT_IF" -s "$ip" -j ACCEPT
+        iptables -D DOCKER-USER -s "$ip" -j ACCEPT
         # Delete IP from file
         sed -i "\|^$ip\$|d" "$ALLOWED_IPS_FILE"
         echo "IP $ip removed."
@@ -157,7 +159,7 @@ function reload_rules() {
 }
 
 function reset_all() {
-    echo "WARNING: This will remove ALL DOCKER-USER rules and clear allowed IPs!"
+    echo "WARNING: This will remove ALL DOCKER-USER rules and clear allowed IPs! and allow all trafic "
     read -p "Are you sure? (yes/[no]): " confirm
     if [[ "$confirm" != "yes" ]]; then
         echo "Aborted."
@@ -170,7 +172,7 @@ function reset_all() {
     # Clear allowed IPs file
     > "$ALLOWED_IPS_FILE"
 
-    echo "All rules removed and allowed IPs cleared."
+    echo "All rules removed and allowed IPs cleared. docker-ufw will accept all trafic now"
 }
 
 case "$1" in

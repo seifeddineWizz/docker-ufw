@@ -3,25 +3,6 @@
 set -e  # Exit on any error
 
 
-# Automatically detect external interface
-EXT_IF=$(ip route get 1.1.1.1 | awk '{for(i=1;i<=NF;i++) if($i=="dev") print $(i+1)}')
-
-# Validate interface detection
-if [[ -z "$EXT_IF" ]]; then
-    echo "[!] Failed to detect external interface. Exiting."
-    exit 1
-fi
-
-echo "[*] Detected external interface: $EXT_IF"
-
-
-# Update EXT_IF variable in docker-ufw and docker-ufw.sh
-echo "[*] Setting EXT_IF=\"$EXT_IF\" in docker-ufw and docker-ufw.sh..."
-
-sed -i "s/^EXT_IF=\".*\"/EXT_IF=\"$EXT_IF\"/" docker-ufw
-sed -i "s/^EXT_IF=\".*\"/EXT_IF=\"$EXT_IF\"/" docker-ufw.sh
-
-
 # Step 1: Copy docker-ufw to /usr/local/bin and make it executable
 echo "[*] Installing docker-ufw to /usr/local/bin..."
 cp docker-ufw /usr/local/bin/docker-ufw
