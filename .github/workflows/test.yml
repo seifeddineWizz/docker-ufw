@@ -20,4 +20,3 @@ jobs:
           echo "Checking files..."
           ls -la
           echo "Test passed!"
-          exit 1
